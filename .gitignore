@@ -1,0 +1,12 @@
+# Never commit game executables, backups, or local release archives.
+Kain.exe
+*.bak
+*.backup
+*.zip
+*.7z
+*.rar
+
+# Local/editor noise.
+.DS_Store
+Thumbs.db
+*.tmp
