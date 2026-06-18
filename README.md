@@ -69,6 +69,33 @@ The mod should be compatible with anything that does not modify the same movemen
 
 The mod is the PowerShell patcher itself. It is intentionally small and readable so the exact byte changes can be audited.
 
+## Build / Package From Source
+
+No compiler is required. Faster Kain is a PowerShell patcher plus three batch-file wrappers.
+
+To make a release zip from a fresh clone:
+
+```powershell
+git clone https://github.com/sevrlbats/faster-kain.git
+cd faster-kain
+Compress-Archive -Path .\* -DestinationPath ..\FasterKain-1.0.0.zip -Force
+```
+
+The generated zip is the distributable mod package. It should contain:
+
+```text
+FasterKain.ps1
+Install Faster Kain.bat
+Uninstall Faster Kain.bat
+Verify Faster Kain.bat
+README.md
+NEXUS_PAGE_TEXT.md
+CHANGELOG.md
+LICENSE
+```
+
+Do not include `Kain.exe`, backups, save files, or any other Blood Omen game files in release packages.
+
 ## License
 
 MIT License. See `LICENSE`.
