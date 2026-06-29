@@ -57,10 +57,12 @@ function Format-BytesAt {
     return (($Data[$Offset..($Offset + $Length - 1)] | ForEach-Object { $_.ToString("X2") }) -join " ")
 }
 
+# Normal-Kain walk speed: 0x21C immediates raised to the shipped wolf speed 0x438.
 $SpeedOffsets = @(0x1FFC, 0x615A, 0x6291, 0x8859, 0x393C0, 0x3A57B)
 $SpeedOld = Convert-HexStringToBytes "1C 02 00 00"
 $SpeedNew = Convert-HexStringToBytes "38 04 00 00"
 
+# Two speed-reset paths, redirected to the code cave so the boost applies before shapeshifting.
 $Hook1Offset = 0x1F5E9
 $Hook1Old = Convert-HexStringToBytes "8B 90 9C 00 00 00 89 50 0C"
 $Hook1New = Convert-HexStringToBytes "E9 E4 A8 02 00 90 90 90 90"
@@ -78,6 +80,24 @@ $CaveNew = Convert-HexStringToBytes @"
 0C 31 DB E9 46 95 FD FF
 "@
 
+# Mist-form (shapeshift form 6) walk speed: its own slow drift 0x1A4 raised to wolf speed 0x438.
+# This is the immediate of "mov dword ptr [ebx+0xC], 0x1A4" in the per-form speed handler at
+# VA 0x448E3F; the next two instructions copy it into the base-speed field, so one immediate
+# covers both the current and stored speed for mist.
+$MistSpeedOffset = 0x39442
+$MistSpeedOld = Convert-HexStringToBytes "A4 01 00 00"
+$MistSpeedNew = $SpeedNew
+
+# All independent byte edits this patch makes, as (Name, Offset, Old, New) units.
+$Patches = @()
+foreach ($offset in $SpeedOffsets) {
+    $Patches += @{ Name = "normal speed const 0x$($offset.ToString('X'))"; Offset = $offset; Old = $SpeedOld; New = $SpeedNew }
+}
+$Patches += @{ Name = "reset hook 1"; Offset = $Hook1Offset; Old = $Hook1Old; New = $Hook1New }
+$Patches += @{ Name = "reset hook 2"; Offset = $Hook2Offset; Old = $Hook2Old; New = $Hook2New }
+$Patches += @{ Name = "code cave"; Offset = $CaveOffset; Old = $CaveOld; New = $CaveNew }
+$Patches += @{ Name = "mist-form speed"; Offset = $MistSpeedOffset; Old = $MistSpeedOld; New = $MistSpeedNew }
+
 if (!(Test-Path -LiteralPath $ExePath)) {
     throw "Could not find Kain.exe at: $ExePath"
 }
@@ -85,31 +105,36 @@ if (!(Test-Path -LiteralPath $ExePath)) {
 $Data = [IO.File]::ReadAllBytes($ExePath)
 
 function Test-Installed {
-    foreach ($offset in $SpeedOffsets) {
-        if (!(Test-BytesAt $Data $offset $SpeedNew)) {
+    foreach ($p in $Patches) {
+        if (!(Test-BytesAt $Data $p.Offset $p.New)) {
             return $false
         }
     }
 
-    return (
-        (Test-BytesAt $Data $Hook1Offset $Hook1New) -and
-        (Test-BytesAt $Data $Hook2Offset $Hook2New) -and
-        (Test-BytesAt $Data $CaveOffset $CaveNew)
-    )
+    return $true
 }
 
 function Test-Uninstalled {
-    foreach ($offset in $SpeedOffsets) {
-        if (!(Test-BytesAt $Data $offset $SpeedOld)) {
+    foreach ($p in $Patches) {
+        if (!(Test-BytesAt $Data $p.Offset $p.Old)) {
             return $false
         }
     }
 
-    return (
-        (Test-BytesAt $Data $Hook1Offset $Hook1Old) -and
-        (Test-BytesAt $Data $Hook2Offset $Hook2Old) -and
-        (Test-BytesAt $Data $CaveOffset $CaveOld)
-    )
+    return $true
+}
+
+# Every unit must be recognizably old or new, or we refuse to touch the file.
+# This also lets the patcher upgrade an older Faster Kain install by applying only
+# the units that are still at their original bytes (for example, mist-form speed).
+function Test-AllUnitsKnown {
+    foreach ($p in $Patches) {
+        if (!((Test-BytesAt $Data $p.Offset $p.Old) -or (Test-BytesAt $Data $p.Offset $p.New))) {
+            return $false
+        }
+    }
+
+    return $true
 }
 
 if ($Action -eq "verify") {
@@ -134,39 +159,31 @@ if ($Action -eq "install") {
         exit 0
     }
 
-    foreach ($offset in $SpeedOffsets) {
-        if (!(Test-BytesAt $Data $offset $SpeedOld)) {
-            throw "Unexpected bytes at 0x$($offset.ToString("X")). Found: $(Format-BytesAt $Data $offset 4)"
+    foreach ($p in $Patches) {
+        if (!((Test-BytesAt $Data $p.Offset $p.Old) -or (Test-BytesAt $Data $p.Offset $p.New))) {
+            throw "Unexpected bytes for $($p.Name) at 0x$($p.Offset.ToString("X")). Found: $(Format-BytesAt $Data $p.Offset $p.Old.Length)"
         }
     }
 
-    if (!(Test-BytesAt $Data $Hook1Offset $Hook1Old)) {
-        throw "Unexpected bytes at hook site 1. Found: $(Format-BytesAt $Data $Hook1Offset $Hook1Old.Length)"
-    }
-
-    if (!(Test-BytesAt $Data $Hook2Offset $Hook2Old)) {
-        throw "Unexpected bytes at hook site 2. Found: $(Format-BytesAt $Data $Hook2Offset $Hook2Old.Length)"
-    }
-
-    if (!(Test-BytesAt $Data $CaveOffset $CaveOld)) {
-        throw "The code cave is not empty. This Kain.exe may already be modified."
-    }
-
-    if (!(Test-Path -LiteralPath $BackupPath)) {
+    # Only snapshot a backup when the executable is fully unpatched, so the backup
+    # always represents a clean, restorable Kain.exe.
+    if (!(Test-Path -LiteralPath $BackupPath) -and (Test-Uninstalled)) {
         Copy-Item -LiteralPath $ExePath -Destination $BackupPath
     }
 
-    foreach ($offset in $SpeedOffsets) {
-        Set-BytesAt $Data $offset $SpeedNew
+    $applied = 0
+    foreach ($p in $Patches) {
+        if (Test-BytesAt $Data $p.Offset $p.Old) {
+            Set-BytesAt $Data $p.Offset $p.New
+            $applied++
+        }
     }
 
-    Set-BytesAt $Data $Hook1Offset $Hook1New
-    Set-BytesAt $Data $Hook2Offset $Hook2New
-    Set-BytesAt $Data $CaveOffset $CaveNew
-
     [IO.File]::WriteAllBytes($ExePath, $Data)
-    Write-Host "Installed Faster Kain."
-    Write-Host "Backup created at: $BackupPath"
+    Write-Host "Installed Faster Kain ($applied of $($Patches.Count) byte units applied; the rest were already patched)."
+    if (Test-Path -LiteralPath $BackupPath) {
+        Write-Host "Backup: $BackupPath"
+    }
     exit 0
 }
 
@@ -182,17 +199,15 @@ if ($Action -eq "uninstall") {
         exit 0
     }
 
-    if (!(Test-Installed)) {
-        throw "Cannot safely uninstall: no backup was found and Kain.exe does not match Faster Kain's installed byte patterns."
+    if (!(Test-AllUnitsKnown)) {
+        throw "Cannot safely uninstall: no backup was found and Kain.exe does not match Faster Kain's expected byte patterns."
     }
 
-    foreach ($offset in $SpeedOffsets) {
-        Set-BytesAt $Data $offset $SpeedOld
+    foreach ($p in $Patches) {
+        if (Test-BytesAt $Data $p.Offset $p.New) {
+            Set-BytesAt $Data $p.Offset $p.Old
+        }
     }
-
-    Set-BytesAt $Data $Hook1Offset $Hook1Old
-    Set-BytesAt $Data $Hook2Offset $Hook2Old
-    Set-BytesAt $Data $CaveOffset $CaveOld
 
     [IO.File]::WriteAllBytes($ExePath, $Data)
     Write-Host "Uninstalled Faster Kain by reversing the patch bytes."

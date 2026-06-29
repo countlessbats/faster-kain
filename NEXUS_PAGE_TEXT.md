@@ -2,13 +2,13 @@
 
 ## Short Description
 
-Makes normal Kain move as fast as wolf-form Kain in Blood Omen: Legacy of Kain.
+Makes normal Kain and mist form move as fast as wolf-form Kain in Blood Omen: Legacy of Kain.
 
 ## Description
 
 Faster Kain is a tiny open-source patcher for the PC/GOG release of **Blood Omen: Legacy of Kain**.
 
-It changes normal Kain's movement speed to match the wolf-form movement speed. In practical terms, normal Kain moves at `0x438`, the same value the game already uses for wolf Kain, instead of the original normal speed `0x21C`.
+It changes normal Kain's movement speed to match the wolf-form movement speed. In practical terms, normal Kain moves at `0x438`, the same value the game already uses for wolf Kain, instead of the original normal speed `0x21C`. Mist form gets the same treatment: its slow drift speed `0x1A4` is raised to the same wolf speed `0x438`. Disguise form also ends up fast for free, because it shares normal Kain's default speed value, which this patch already raises. Only bat form (the fast-travel form) has no walking speed of its own and is left alone.
 
 Because this uses an existing shipped movement speed rather than an arbitrary new value, it should in theory avoid breaking the game. Wolf-form Kain already moves at this speed in normal gameplay.
 
@@ -17,6 +17,8 @@ The mod also patches two speed-reset paths so the faster speed works immediately
 ## Features
 
 - Normal Kain moves as fast as wolf-form Kain
+- Mist form moves as fast as wolf-form Kain
+- Disguise form moves fast too, sharing normal Kain's boosted speed
 - Works immediately on load; no shapeshift required
 - Uses the game's existing wolf speed value
 - Does not change shapeshift mana drain
